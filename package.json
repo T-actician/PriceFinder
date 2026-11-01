@@ -1,6 +1,6 @@
 {
   "name": "price-finder",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Price Finder - compare product prices and specs across all retailers",
   "main": "main.js",
   "scripts": {
@@ -9,7 +9,8 @@
     "test": "node tests/matching.test.js"
   },
   "dependencies": {
-    "cheerio": "^1.2.0"
+    "cheerio": "^1.2.0",
+    "electron-updater": "^6.3.9"
   },
   "devDependencies": {
     "electron": "^41.0.0",
@@ -38,6 +39,13 @@
     },
     "portable": {
       "artifactName": "Price-Finder-Portable-${version}.${ext}"
-    }
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "T-actician",
+        "repo": "PriceFinder"
+      }
+    ]
   }
 }

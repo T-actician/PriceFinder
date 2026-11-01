@@ -239,4 +239,19 @@ ipcMain.handle('export', async (_, csv) => {
 });
 
 app.whenReady().then(createWindow);
+
+// Self-update from GitHub Releases (installer version only; the portable .exe can't update itself).
+app.whenReady().then(() => {
+  if (!app.isPackaged || process.env.PORTABLE_EXECUTABLE_FILE) return;
+  try {
+    const { autoUpdater } = require('electron-updater');
+    autoUpdater.on('update-downloaded', info => {
+      dialog.showMessageBox(win, { type: 'info', buttons: ['Restart now', 'Later'], defaultId: 0, title: 'Price Finder update',
+        message: 'Version ' + info.version + ' is ready.', detail: 'Restart to finish updating. It also installs automatically when you close the app.' })
+        .then(r => { if (r.response === 0) autoUpdater.quitAndInstall(); });
+    });
+    autoUpdater.on('error', () => { /* offline or no release yet: ignore */ });
+    autoUpdater.checkForUpdates().catch(() => {});
+  } catch { /* updater unavailable */ }
+});
 app.on('window-all-closed', () => app.quit());
