@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; img-src * data:; style-src 'self' 'unsafe-inline'">
+<title>Price Finder</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="app">
+  <aside class="side">
+    <div class="brand"><span class="dot"></span>Price Finder</div>
+    <label for="q">Products <small>one per line</small></label>
+    <textarea id="q" placeholder="Gate Valve 1&quot; Lirlee&#10;PPR Pipe 25mm&#10;Water Tank 500L" spellcheck="false"></textarea>
+    <button id="go" class="primary">Search <kbd>Ctrl+Enter</kbd></button>
+    <div class="row">
+      <button id="export" class="ghost" disabled>Export CSV</button>
+      <button id="folder" class="ghost">Image folder</button>
+    </div>
+    <div id="msg" class="msg"></div>
+    <button id="diag" class="ghost" style="padding:5px;font-size:12px">Copy diagnostics</button>
+    <div class="conv">
+      <div class="tabs"><button id="tc" class="tab on">Converter</button><button id="tk" class="tab">Calculator</button></div>
+      <div id="pc" class="pane">
+        <select id="cu"></select>
+        <div class="cr"><input id="cv" value="1" spellcheck="false" placeholder="e.g. 3/4 or 2 1/2"><select id="cf"></select></div>
+        <div class="cr"><button id="cs" class="ghost" title="Swap">&#8645;</button><select id="ct"></select></div>
+        <div class="cres"><span id="co">–</span><button id="cc" class="cp" title="Copy">&#10064;</button></div>
+      </div>
+      <div id="pk" class="pane" hidden>
+        <input id="ke" spellcheck="false" placeholder="e.g. 1050/18" autocomplete="off">
+        <div class="cres"><span id="kr">0</span><button id="kc" class="cp" title="Copy">&#10064;</button></div>
+        <div class="keys" id="keys"></div>
+      </div>
+    </div>
+  </aside>
+  <main id="results" class="results">
+    <div class="empty">Paste product names and press Search.</div>
+  </main>
+</div>
+
+<script src="app.js"></script>
+<script src="convert.js"></script>
+<script src="calc.js"></script>
+</body>
+</html>

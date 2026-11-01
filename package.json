@@ -1,0 +1,43 @@
+{
+  "name": "price-finder",
+  "version": "1.0.0",
+  "description": "Price Finder - compare product prices and specs across all retailers",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dist": "electron-builder --win --publish never",
+    "test": "node tests/matching.test.js"
+  },
+  "dependencies": {
+    "cheerio": "^1.2.0"
+  },
+  "devDependencies": {
+    "electron": "^41.0.0",
+    "electron-builder": "^26.0.0"
+  },
+  "build": {
+    "appId": "com.pricefinder.app",
+    "productName": "Price Finder",
+    "files": [
+      "main.js",
+      "preload.js",
+      "shops.txt",
+      "src/**",
+      "renderer/**"
+    ],
+    "win": {
+      "target": [
+        "nsis",
+        "portable"
+      ]
+    },
+    "nsis": {
+      "artifactName": "Price-Finder-Setup-${version}.${ext}",
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true
+    },
+    "portable": {
+      "artifactName": "Price-Finder-Portable-${version}.${ext}"
+    }
+  }
+}
