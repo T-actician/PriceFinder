@@ -36,9 +36,13 @@ function view(g) {
   if (main.length && !hasExact && !onlyRelated) note = 'No exact match' + (kenya ? ' in Kenya' : '') + '. Showing the closest results, best match first.';
   if (!kenya && main.length) note = 'No Kenyan listings found. Showing international results (converted to KSh), best match first.';
   const showIntl = kenya && g.showIntl;
+  const all2 = showIntl ? main.concat(intl) : main, core = all2.filter(o => o.match !== 'related');
+  const foldRel = core.length > 0 && !g.showRelated, pool = foldRel ? core : all2, cnt = new Map(), moreRel = foldRel ? all2.length - core.length : 0;
+  pool.forEach(o => cnt.set(o.store, (cnt.get(o.store) || 0) + 1));
+  const stores = [...cnt.entries()].sort((a, b) => b[1] - a[1]);
   if (onlyRelated) note = 'Nothing matched exactly. These are the closest related listings, best first.';
   if (g.corrected && main.length) note = 'Also searched “' + g.corrected + '” (possible spelling). ' + note;
-  return { main: showIntl ? main.concat(intl) : main, intl: kenya && !g.showIntl ? intl : [], note };
+  return { main: g.store && cnt.has(g.store) ? pool.filter(o => o.store === g.store) : pool, intl: kenya && !g.showIntl ? intl : [], note, stores, moreRel };
 }
 
 function render() {
@@ -55,7 +59,9 @@ function render() {
       ${g.error ? `<div class="msg err">${esc(g.error)}</div>` : ''}
       ${g.targets && g.targets.length ? `<div class="msg">Searched first: ${esc(g.targets.join(', '))}</div>` : ''}
       ${v.note ? `<div class="msg">${esc(v.note)}</div>` : ''}
+      ${v.stores.length > 1 ? `<div class="chips"><button class="chip${g.store ? '' : ' on'}" data-store="${gi}|">All (${v.stores.reduce((a, s) => a + s[1], 0)})</button>${v.stores.map(([n, c]) => `<button class="chip${g.store === n ? ' on' : ''}" data-store="${gi}|${esc(n)}">${esc(n)} (${c})</button>`).join('')}</div>` : ''}
       ${v.main.map(o => offerHtml(o, v.main.length > 1 && o.price > 0 && o.price === lo && !o.from)).join('')}
+      ${v.moreRel ? `<button class="more" data-more="${gi}">Show ${v.moreRel} more related results</button>` : ''}
       ${v.intl.length ? `<button class="more" data-intl="${gi}">Show ${v.intl.length} international results (converted to KSh)</button>` : ''}
     </section>`;
   }).join('');
@@ -106,10 +112,13 @@ $('results').addEventListener('click', e => {
   if (b.dataset.img) window.api.download(b.dataset.img, b.dataset.name).then(r => {
     if (r) { $('msg').textContent = r.error ? 'Download failed.' : 'Saved: ' + r.file; $('msg').className = 'msg' + (r.error ? ' err' : ''); }
   });
-  if (b.dataset.more) { groups[+b.dataset.more].showLoose = true; render(); }
+  if (b.dataset.more) { groups[+b.dataset.more].showRelated = true; render(); }
+  if (b.dataset.store != null) { const i = b.dataset.store.indexOf('|'), gi = +b.dataset.store.slice(0, i), n = b.dataset.store.slice(i + 1); groups[gi].store = groups[gi].store === n ? '' : n; render(); }
   if (b.dataset.intl) { groups[+b.dataset.intl].showIntl = true; render(); }
 });
 $('diag').onclick = async () => { const n = await window.api.diag(); $('msg').textContent = n ? 'Copied ' + n + ' diagnostic lines. Paste them in the chat.' : 'No diagnostics yet. Search first.'; };
+$('vg').onclick = async () => { await window.api.verifyGoogle(); $('msg').textContent = 'Solve the check in the window, then close it. Search again after.'; $('vg').hidden = true; };
+window.api.onNotice(t => { if (t === 'google') { $('vg').hidden = false; $('msg').textContent = 'Google blocked automatic searches, so results may be missing. Click Verify Google.'; $('msg').className = 'msg err'; } });
 $('go').onclick = go;
 $('q').addEventListener('keydown', e => { if (e.ctrlKey && e.key === 'Enter') go(); });
 $('folder').onclick = async () => { const d = await window.api.pickDir(); if (d) { $('msg').textContent = 'Images save to: ' + d; $('msg').className = 'msg'; } };

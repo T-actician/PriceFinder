@@ -55,3 +55,5 @@ ul.specs{margin:4px 0 0;padding-left:18px;color:#c9cedb}ul.specs b{color:var(--t
 .pane{display:flex;flex-direction:column;gap:8px}.pane[hidden]{display:none}
 .keys{display:grid;grid-template-columns:repeat(4,1fr);gap:6px}.keys button{padding:8px 0;font-size:15px}.keys button.op{color:var(--acc);font-weight:700}.keys button.eq{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:700}
 #ke{font-size:15px;text-align:right}
+
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin:0 0 12px}.chip{padding:4px 11px;font-size:12px;border-radius:99px;background:var(--card);color:#c9cedb}.chip.on{background:var(--acc);border-color:var(--acc);color:#fff;font-weight:600}

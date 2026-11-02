@@ -3,7 +3,8 @@ const { app, BrowserWindow, ipcMain, shell, dialog, clipboard, session } = requi
 const fs = require('fs');
 const path = require('path');
 const { isBlocked, keyQueries, shopMode, officialSites, smart, searchProduct, quickWeb, discover, setDiscovered, setRates, setLog, snippetPrice, priceRange, variants, plan, setShops, getShops, shopQueries, kenyanSite, setLearned } = require('./src/search');
-const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/130.0 Safari/537.36';
+const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/' + process.versions.chrome + ' Safari/537.36';   // matches the real engine inside the app
+let googleBlockedUntil = 0;                                        // Google showed a captcha: leave it alone until the person verifies (or 30 min)
 
 // Free mode: loads Google Shopping in a hidden window, like a normal visitor, and reads the prices off it.
 const EXTRACT = `(()=>{const out=[],seen=new Set(),P=/(?:ksh|kes)\\s?[\\d,]+/i;
@@ -60,22 +61,35 @@ function hidden(url, readFn, hi) {
       w.webContents.setUserAgent(UA);
       w.loadURL(url, { extraHeaders: 'Accept-Language: en-US,en;q=0.9\n' }).catch(() => {});
       let prev = -1, last = [];
+      const trace = [];
       for (let i = 0; i < 26; i++) {
         await sleep(250);
         if (w.isDestroyed()) break;
-        if (/\/sorry\/|captcha/i.test(w.webContents.getURL())) { dbg('window', url.slice(0, 70), 'Google asked for a check (captcha)', 0); break; }
-        if (w.webContents.isLoading()) continue;
-        last = await w.webContents.executeJavaScript(readFn).catch(() => []);
-        if (last.length && last.length === prev) break;      // stable
-        prev = last.length;
+        if (/\/sorry\/|captcha/i.test(w.webContents.getURL())) {
+          dbg('window', url.slice(0, 70), 'Google asked for a check (captcha)', 0);
+          if (!googleBlockedUntil || googleBlockedUntil < Date.now()) { googleBlockedUntil = Date.now() + 30 * 60 * 1000; if (win && !win.isDestroyed()) win.webContents.send('notice', 'google'); }
+          break;
+        }
+        // Read the page even while it is still "loading" (Google, Jiji etc. never stop loading in a hidden window); settled = same count twice
+        const busy = w.webContents.isLoading();
+        if (busy && i < 4) continue;
+        let cur;
+        try { cur = await w.webContents.executeJavaScript(readFn); trace.push(Array.isArray(cur) ? cur.length : 'x'); } catch (e) { trace.push('E:' + String(e.message).slice(0, 40)); cur = []; }
+        if (!Array.isArray(cur)) cur = [];
+        if (cur.length > last.length) last = cur;                  // keep the best read, a later empty read (page reloading) must not wipe it
+        if (cur.length && cur.length === prev && (!busy || i >= 8)) break;      // stable
+        prev = cur.length;
       }
-      if (!last.length && !w.isDestroyed()) dbg('window', url.slice(0, 70), 'empty; page title: ' + w.webContents.getTitle(), 0);
+      if (!last.length && !w.isDestroyed()) {
+        const info = await w.webContents.executeJavaScript("(()=>{const t=document.body?document.body.innerText:'';return t.length+' chars; a='+document.querySelectorAll('a').length+'; h3='+document.querySelectorAll('h3').length+'; li.product='+document.querySelectorAll('li.product').length+'; h3s: '+[...document.querySelectorAll('h3')].slice(0,3).map(h=>(h.closest('a')?'A['+(h.closest('a').getAttribute('href')||'').slice(0,50)+']':'noA')+h.innerText.slice(0,25)).join(' / ')+'; text: '+t.replace(/\\s+/g,' ').slice(0,100)})()").catch(e => 'diag error ' + e.message);
+        dbg('window', url.slice(0, 70), 'empty; reads=[' + trace.join(',') + '] title: ' + w.webContents.getTitle() + ' | ' + info, 0);
+      }
       return last;
     } finally { if (!w.isDestroyed()) w.destroy(); }
   }, hi);
 }
 
-const googleShopping = async q => ({ shopping: await hidden('https://www.google.com/search?tbm=shop&hl=en&gl=ke&q=' + encodeURIComponent(q), EXTRACT) });
+const googleShopping = async q => googleBlockedUntil > Date.now() ? { shopping: [] } : ({ shopping: await hidden('https://www.google.com/search?tbm=shop&hl=en&gl=ke&q=' + encodeURIComponent(q), EXTRACT) });
 const SITES = [
   ['Amazon US', 'https://www.amazon.com/s?k='], ['Amazon UK', 'https://www.amazon.co.uk/s?k='],
   ['eBay', 'https://www.ebay.com/sch/i.html?_nkw='], ['AliExpress', 'https://www.aliexpress.com/wholesale?SearchText='],
@@ -93,11 +107,43 @@ const multi = (fn, list = variants) => async q => {
 const KE = new Set(['Jumia Kenya', 'Kilimall', 'Jiji Kenya']);
 const modelOnly = q => { const p = plan(q); return /\d/.test(p[0] || '') && !/\s/.test(p[0]) ? [p[0]] : []; };
 // Google exactly as your own browser sees it (hidden window). Reliable; used together with the fast plain-request engines.
-const GOOGLE_RESULTS = `(()=>{const out=[],seen=new Set();document.querySelectorAll('a h3').forEach(h=>{const a=h.closest('a');if(!a||!/^https?:/.test(a.href))return;
-let u=a.href;try{const x=new URL(u);if(/google\\./.test(x.hostname)&&x.pathname==='/url')u=x.searchParams.get('q')||x.searchParams.get('url')||u;}catch(e){}
-if(seen.has(u))return;seen.add(u);let b=a;for(let i=0;i<7&&b.parentElement;i++){const p=b.parentElement;if(p.querySelectorAll('h3').length>1)break;b=p;}
-out.push({title:h.innerText,link:u,snippet:(b.innerText||'').slice(0,700)});});return out;})()`;
-const googleWin = async q => (await hidden('https://www.google.com/search?hl=en&gl=ke&q=' + encodeURIComponent(q), GOOGLE_RESULTS, true).catch(() => [])).map((r, i) => ({ ...r, gpos: i }));
+const GOOGLE_RESULTS = `(()=>{const out=[],seen=new Set();
+const add=(a,title)=>{if(!a||!/^https?:/.test(a.href))return;let u=a.href;try{const x=new URL(u);if(x.hostname.includes('google.')){if(x.pathname==='/url')u=x.searchParams.get('q')||x.searchParams.get('url')||u;else if(x.pathname!=='/goto')return;}}catch(e){}
+if(seen.has(u)||!title)return;seen.add(u);let b=a;for(let i=0;i<7&&b.parentElement;i++){const p=b.parentElement;if(p.querySelectorAll('h3,[role=heading]').length>1)break;b=p;}
+out.push({title:title,link:u,snippet:(b.innerText||'').slice(0,700)});};
+document.querySelectorAll('a h3, a [role=heading], h3 a').forEach(h=>{const a=h.closest('a')||h.querySelector('a');add(a,(h.innerText||'').trim());});
+if(!out.length)document.querySelectorAll('a[href^=http]').forEach(a=>{const t=(a.innerText||'').split(String.fromCharCode(10))[0].trim();if(t.length>=20&&t.length<=160)add(a,t);});
+return out;})()`;
+// Google gives a bare window links like google.com/goto?url=<code>. Its answer to that link is a redirect to the real page: read where it points.
+const GOTO_FAIL = [];
+const resolveGoto = async o => {
+  let x; try { x = new URL(o.link); } catch { return null; }
+  if (!x.hostname.includes('google.') || x.pathname !== '/goto') return o;
+  // the real site is shown under every result ("https://www.finder.com > product > ..."): keep that as a lead if the redirect can't be read
+  const shown = (String(o.snippet).match(/https?:\/\/[a-z0-9.-]+\.[a-z]{2,}/i) || [])[0];
+  const lead = shown && !/google\./.test(shown) ? { ...o, link: shown + '/', lead: true } : null;
+  try {
+    const r = await fetch(o.link, { redirect: 'manual', headers: { 'User-Agent': UA }, signal: AbortSignal.timeout(4000) });
+    const loc = r.headers.get('location');
+    if (loc && /^https?:/.test(loc) && !/google\./.test(new URL(loc).hostname)) return { ...o, link: loc };
+    if (r.status === 200) {                                        // no redirect header: the page itself names the real address (meta refresh / script / link)
+      const body = (await r.text()).slice(0, 20000).replace(/\\x3d/gi, '=').replace(/\\x26/gi, '&').replace(/\\\//g, '/').replace(/&amp;/g, '&');
+      const urls = body.match(/https?:\/\/[^\s"'<>\\)]+/g) || [];
+      const real = urls.map(u => u.replace(/[,;.]+$/, '')).find(u => { try { return !/(google|gstatic|googleapis|schema\.org|w3\.org)\./i.test(new URL(u).hostname); } catch { return false; } });
+      if (real) return { ...o, link: real };
+    }
+    GOTO_FAIL.push(r.status + (loc ? ' ->google' : ' nolocation'));
+  } catch (e) { GOTO_FAIL.push('err ' + String(e.message).slice(0, 20)); }
+  return lead;
+};
+const googleWin = async q => {
+  if (googleBlockedUntil > Date.now()) return [];
+  const raw = (await hidden('https://www.google.com/search?hl=en&gl=ke&q=' + encodeURIComponent(q), GOOGLE_RESULTS, true).catch(() => [])).map((r, i) => ({ ...r, gpos: i }));
+  GOTO_FAIL.length = 0;
+  const fixed = (await Promise.all(raw.map(resolveGoto))).filter(Boolean);
+  dbg('google-window', q, 'read ' + raw.length + ', usable links ' + fixed.length + ' (leads only: ' + fixed.filter(f => f.lead).length + '); redirect failures: ' + GOTO_FAIL.join(', '), fixed.length);
+  return fixed;
+};
 // Fast plain-request engines first (~1 s). Google's own window only when those found little.
 const engine = async q => {
   let fast = []; try { fast = (await quickWeb(q)).organic || []; } catch { /* none */ }
@@ -109,7 +155,7 @@ const engine = async q => {
 // Web search (fast plain requests + Google window) (Google + Bing + DuckDuckGo at once, ~1 s). Several angles run together.
 const webAll = async q => {
   // Google's own results page in a window (shows shop prices even for shops that block us), plus the fast engines
-  const jobs = [googleWin(q).then(o => { dbg('google-window', q, 'results', o.length); return { organic: o }; }), googleWin(q + ' Kenya').then(o => ({ organic: o })), quickWeb(q), quickWeb(q + ' price Kenya')];
+  const jobs = [googleWin(q).then(o => { dbg('google-window', q, 'results', o.length); return { organic: o }; }), quickWeb(q), quickWeb(q + ' price Kenya')];
   for (const site of officialSites(q)) jobs.push(quickWeb('site:' + site + ' ' + q.replace(/[`´‘’′"']+/g, ' ').split(/\s+/).filter(w => !officialSites(w).length).join(' ')).then(r => ({ organic: r.organic.map(o => ({ ...o, official: true })) })));
   const vs = variants(q); if (vs[1]) jobs.push(quickWeb(vs[1]));
   const sm = smart(q).filter(x => x.toLowerCase() !== q.toLowerCase()); if (sm[0]) jobs.push(quickWeb(sm[0] + ' Kenya'));
@@ -161,7 +207,7 @@ const cfg = { country: 'ke', onLearn: o => { try { fs.writeFileSync(learnedFile,
   shopMap,
   siteSearch: (host, browser) => makeShop(host, browser),
   discover: (q, onSite) => discover(q, engine, saveDisc, onSite),
-  slow: [multi(googleShopping, q => [q, ...modelOnly(q)]), ...SITES.filter(([n]) => KE.has(n)).map(([n, u]) => multi(siteSearch(n, u), q => [...variants(q).slice(0, 1), ...modelOnly(q)]))],
+  slow: [...SITES.filter(([n]) => KE.has(n)).map(([n, u]) => multi(siteSearch(n, u), q => [...variants(q).slice(0, 1), ...modelOnly(q)]))],
   intl: SITES.filter(([n]) => !KE.has(n)).map(([n, u]) => siteSearch(n, u)),
   web: webAll,
 } };
@@ -202,6 +248,14 @@ async function pickDir() {
 }
 ipcMain.handle('pickdir', () => pickDir());
 ipcMain.handle('diag', () => { try { const t = fs.readFileSync(dbgFile, 'utf8').trim().split('\n').slice(-70).join('\n'); clipboard.writeText(t); return t.split('\n').length; } catch { return 0; } });
+// Google sometimes asks the app to prove it's a person. The person solves it once in a normal window; the app then keeps the pass.
+ipcMain.handle('verifyGoogle', () => {
+  const v = new BrowserWindow({ width: 960, height: 720, title: 'Verify with Google', webPreferences: { contextIsolation: true, partition: 'persist:scrape' } });
+  v.webContents.setUserAgent(UA);
+  v.loadURL('https://www.google.com/search?hl=en&gl=ke&q=gate+valve+1+inch+price+kenya');
+  v.on('closed', () => { googleBlockedUntil = 0; });
+  return true;
+});
 ipcMain.handle('copy', (_, text) => { clipboard.writeText(String(text)); return true; });
 ipcMain.handle('dl', async (_, url, name) => {
   if (!/^https?:\/\//i.test(url)) return { error: true };

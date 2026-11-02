@@ -24,6 +24,10 @@ const cases = [
   ['Reducer 3/4 1/2', 'Reducer 3/4 x 1/2 brass', true],
   ['Ingco drill 13mm', 'Bosch drill 13mm', false],
   ['Zebra hose pipe 1 inch', 'Zebra pipe fitting 1 inch', false],
+  ['iphone 18 pro', 'PVC ceiling Light gauge 18 ft x 8" 1 Bundle(10 Pieces) HM 010', false],
+  ['iphone 18 pro', 'AC1200 Dual Band WiFi Repeater Tenda A18 Pro', false],
+  ['iphone 18 pro', 'Category Archives: Uncategorized', false],
+  ['iphone 15 pro', 'Apple iPhone 15 Pro 256GB', true],
 ];
 let fail = 0;
 for (const [q, t, want] of cases) {

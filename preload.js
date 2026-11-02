@@ -6,6 +6,8 @@ contextBridge.exposeInMainWorld('api', {
   exportCsv: csv => ipcRenderer.invoke('export', csv),
   download: (url, name) => ipcRenderer.invoke('dl', url, name),
   diag: () => ipcRenderer.invoke('diag'),
+  verifyGoogle: () => ipcRenderer.invoke('verifyGoogle'),
+  onNotice: cb => ipcRenderer.on('notice', (_, t) => cb(t)),
   copy: text => ipcRenderer.invoke('copy', text),
   pickDir: () => ipcRenderer.invoke('pickdir'),
   onEvent: cb => ipcRenderer.on('evt', (_, e) => cb(e)),

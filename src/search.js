@@ -111,9 +111,9 @@ function analyze(query, main, extra, dom, ctx) {
     typePen = 0.12;
   }   // asked hose: it must be a hose
   const distinct = qt.map((t, i) => [t, i]).filter(([t]) => /^[a-z]{4,}$/.test(t) && !GENERIC.has(t) && !LOW.has(t) && !MOD.has(t) && !FORM.has(t) && !MATERIALS.includes(t) && !COLORS.includes(t) && !STOP.has(t));
-  if (distinct.length && n >= 2 && !modelHit && covW < 0.9 && distinct.some(([, i]) => !inAny[i])) return fin({ match: 'loose', rank: 0.02, soft: true, reason: 'distinct' });   // the one word that names the product is missing
+  if (distinct.length && n >= 2 && !modelHit && covW < 0.9 && distinct.some(([, i]) => !inAny[i])) return fin({ match: 'loose', rank: 0.02, soft: qt.some((t, i) => /^[a-z]{4,}$/.test(t) && !GENERIC.has(t) && !LOW.has(t) && inAny[i]), reason: 'distinct' });   // the one word that names the product is missing
   const al = qt.map((t, i) => [t, i]).filter(([t]) => /^[a-z]+$/.test(t) && !LOW.has(t));
-  if (al.length >= 2 && !modelHit && al.filter(([, i]) => inAny[i]).length / al.length < 0.5) return fin({ match: 'loose', rank: 0.01, soft: al.filter(([, i]) => inAny[i]).length / al.length >= 0.34 });   // only numbers matched: wrong product
+  if (al.length >= 2 && !modelHit && al.filter(([, i]) => inAny[i]).length / al.length < 0.5) return fin({ match: 'loose', rank: 0.01, soft: al.filter(([, i]) => inAny[i]).length / al.length >= 0.34, reason: 'distinct' });   // only numbers matched: wrong product (never shown, not even as 'closest')
   const qa = titleSpecs(query), ta = titleSpecs(main);
   for (const k of ['No. of gangs', 'No. of ways', 'Pressure rating']) { const a = qa.find(x => x[0] === k), b = ta.find(x => x[0] === k); if (a && b && a[1] !== b[1]) return fin({ match: 'loose', rank: 0, reason: 'spec' }); }
   const qc = qt.filter(t => COLORS.includes(t)), tc = mt.filter(t => COLORS.includes(t));
@@ -436,7 +436,7 @@ const GENERIC = new Set(('pipe pipes hose hosepipe wrench spanner switch gang wa
   'cutter cutters threader tester level chisel rasp vice vise jack tool tools connector fitting fittings nozzle sprinkler cordless wireless rechargeable portable digital automatic adjustable professional industrial universal waterproof original genuine new used heavy duty light medium large small big long short wide thin thick round square flat flexible rigid male female straight angle left right inch inches foot feet metre meter litre liter size price kenya nairobi per each pair piece pieces').split(/\s+/));
 /** Words in the query that could be a brand: not a product word, colour, material, unit or number. */
 const brandCandidates = q => [...new Set(tokens(q).filter(t => /^[a-z][a-z-]{2,14}$/.test(t) && !GENERIC.has(t) && !STOP.has(t) && !LOW.has(t) && !MATERIALS.includes(t) && !COLORS.includes(t) && !BRAND_SITES[t]))].slice(0, 3);
-const KNOWN_BRANDS = new Set('ingco makita bosch dewalt stanley schneider philips samsung hisense tecno infinix xiaomi oppo apple sony hp dell lenovo asus acer ramtons hotpoint nokia huawei hikvision dahua tefal kenwood tp-link tplink sandstorm mika'.split(' '));
+const KNOWN_BRANDS = new Set('ingco makita bosch dewalt stanley schneider philips samsung hisense tecno infinix xiaomi oppo apple iphone ipad macbook airpods galaxy redmi realme vivo sony hp dell lenovo asus acer ramtons hotpoint nokia huawei hikvision dahua tefal kenwood tp-link tplink sandstorm mika'.split(' ').map(b => norm(b).trim()));   // normalised the same way as query tokens (iphone -> ifone)
 let DISCOVERED = new Set();                                       // brands whose own site the app found (set from main.js)
 const setBrands = list => { DISCOVERED = new Set(list || []); };
 const FORM = new Set('roll rolls coil round square flat rectangular oval tube tubing class type size grade standard quality original new price best'.split(' '));
@@ -514,6 +514,7 @@ async function searchProduct(q, cfg, emit, isLive) {
   const seen = new Map(), urlKeys = new Set(), soft = [], webBuf = [], related = [];
   let raw = 0, webOpen = false, errored = false;
   const live = () => !isLive || isLive();
+  let dropped = 0; const drop = (store, title, an) => { if (dropped++ < 40) LOG('dropped', clean(title).slice(0, 70), store + ' | ' + (an.reason || 'loose') + ' cov=' + an.cov, 0); };
   const add = list => {
     const fresh = list.filter(o => { const k = String(o.url).split('#')[0] + '|' + (o.price || 0); if (seen.has(o.id) || urlKeys.has(k)) return false; urlKeys.add(k); return true; });
     fresh.forEach(o => seen.set(o.id, o));
@@ -540,7 +541,7 @@ async function searchProduct(q, cfg, emit, isLive) {
         match: an.match, rank: an.rank + boost(it.link), bonus: boost(it.link), verified: NOFETCH.some(d => domain(it.link).includes(d)),
       };
       const rg = k.orig ? null : priceRange(it.price); item.hi = rg ? Math.round(rg.hi) : k.hi; item.from = item.hi > k.price;   // "KSh 2,300 – KSh 22,000" = from 2,300
-      if (an.match === 'loose') { if (an.soft) soft.push({ ...item, match: 'near', verified: true }); else if (!['brand', 'size', 'spec', 'distinct'].includes(an.reason) && !item.intl && an.cov >= 0.3 && (an.reason !== 'type' || an.cov >= 0.7)) related.push({ ...item, match: 'related', rank: an.cov * 0.4 + boost(it.link) }); continue; }
+      if (an.match === 'loose') { drop(item.store, it.title, an); if (an.soft) soft.push({ ...item, match: 'near', verified: true }); else if (!['brand', 'size', 'spec', 'distinct'].includes(an.reason) && !item.intl && an.cov >= 0.3 && (an.reason !== 'type' || an.cov >= 0.7)) related.push({ ...item, match: 'related', rank: an.cov * 0.4 + boost(it.link) }); continue; }
       offers.push(item);
     }
     add(offers);
@@ -578,7 +579,8 @@ async function searchProduct(q, cfg, emit, isLive) {
         track(runSource(cfg.providers.siteSearch(d, false), [q]).catch(() => {}));
       }
     }
-    await pool(urls.slice(0, 18), 14, async it => {
+    const pages = urls.filter(u => !u.lead);                          // a 'lead' only names a shop (its home page): the shop is searched above, the page itself isn't a listing
+    await pool(pages.slice(0, 18), 14, async it => {
       let html = null;
       try { html = await fetchPage(it.link, 3500); } catch { /* retry below */ }
       const x = html ? extract(html) : { money: null, name: '', image: '', specs: [], isProduct: true };
@@ -601,7 +603,7 @@ async function searchProduct(q, cfg, emit, isLive) {
         price: k.price || null, hi: k.hi, from: k.hi > k.price || sizeGone,
       };
       wo.bonus = wo.rank - an.rank;
-      if (match === 'loose') { if (an.soft) soft.push({ ...wo, match: 'near' }); else if (!['brand', 'size', 'spec', 'distinct'].includes(an.reason) && !wo.intl && an.cov >= 0.3 && (an.reason !== 'type' || an.cov >= 0.7)) related.push({ ...wo, match: 'related', rank: an.cov * 0.4 + boost(it.link) }); return; }
+      if (match === 'loose') { drop(wo.store, title, an); if (an.soft) soft.push({ ...wo, match: 'near' }); else if (!['brand', 'size', 'spec', 'distinct'].includes(an.reason) && !wo.intl && an.cov >= 0.3 && (an.reason !== 'type' || an.cov >= 0.7)) related.push({ ...wo, match: 'related', rank: an.cov * 0.4 + boost(it.link) }); return; }
       if (official || webOpen || tgt.includes(domain(it.link))) add([wo]); else webBuf.push(wo);        // Google is the fallback: held back until the shops have answered
     });
   });
@@ -653,9 +655,9 @@ async function searchProduct(q, cfg, emit, isLive) {
   }
   if (!seen.size && soft.length) add(soft.sort((a, b) => a.price - b.price).slice(0, 12));   // nothing better: show the closest
   const strong = [...seen.values()].filter(o => !o.intl && o.rank >= 0.3).length;
-  if (strong < 3 && related.length) {                                // never leave the person empty-handed: closest relevant listings, labelled
+  if (related.length) {                                              // the rest of what the shops listed that is related, best first (the screen keeps them folded away)
     const pool2 = related.filter(o => !o.intl);
-    add(pool2.filter(o => strong === 0).sort((a, b) => b.rank - a.rank || (a.price || 1e12) - (b.price || 1e12)).slice(0, 8 - Math.min(strong, 4)));
+    add(pool2.sort((a, b) => b.rank - a.rank || (a.price || 1e12) - (b.price || 1e12)).slice(0, 30));
   }
   LOG('summary', q, 'raw=' + raw + ' shown=' + seen.size + ' ms=' + (Date.now() - t0), seen.size);
   if (live() && !seen.size) { errored = true; emit({ type: 'error', message: 'No listings found (' + raw + ' checked, none matched). If this keeps happening, wait a few minutes (Google may be limiting searches) and try again.' }); }
