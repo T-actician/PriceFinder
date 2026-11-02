@@ -1,6 +1,6 @@
 {
   "name": "price-finder",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "description": "Price Finder - compare product prices and specs across all retailers",
   "main": "main.js",
   "scripts": {
